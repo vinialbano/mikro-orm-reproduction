@@ -24,8 +24,7 @@ export const EmergencyContactSchema = new EntitySchema<EmergencyContact>({
     name: {
       kind: 'embedded',
       entity: () => PersonName,
-      prefix: false, // doesn't work
-      // prefix: 'emergency_contact_', // have to override the parent prefix
+      prefix: 'emergency_contact_', // have to override the parent prefix
     },
     relationship: { type: 'string' },
   },
@@ -94,13 +93,19 @@ test('basic CRUD example', async () => {
   const qb = orm.em.createQueryBuilder('Patient');
 
   qb.select(['*']).where({ id: '1' });
-  const patient = await qb.execute('get', false);
+  const patient = await qb.execute('get', true);
   expect(patient).toStrictEqual({
     id: '1',
-    given_name: 'John',
-    surname: 'Doe',
-    emergency_contact_given_name: 'Jane',
-    emergency_contact_surname: 'Doe',
-    emergency_contact_relationship: 'wife',
+    name: {
+      givenName: 'John',
+      surname: 'Doe'
+    },
+    emergencyContact: {
+      name: {
+        givenName: 'Jane',
+        surname: 'Doe'
+      },
+      relationship: 'wife'
+    }
   });
 });
