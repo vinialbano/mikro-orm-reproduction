@@ -1,30 +1,72 @@
-import { Entity, MikroORM, PrimaryKey, Property } from '@mikro-orm/sqlite';
+import { EntitySchema, MikroORM } from '@mikro-orm/sqlite';
 
-@Entity()
-class User {
-
-  @PrimaryKey()
-  id!: number;
-
-  @Property()
-  name: string;
-
-  @Property({ unique: true })
-  email: string;
-
-  constructor(name: string, email: string) {
-    this.name = name;
-    this.email = email;
-  }
-
+class PersonName {
+  constructor(readonly givenName: string, readonly surname: string) {}
 }
+
+export const PersonNameSchema = new EntitySchema<PersonName>({
+  class: PersonName,
+  embeddable: true,
+  properties: {
+    givenName: { type: 'string' },
+    surname: { type: 'string' },
+  },
+});
+
+class EmergencyContact {
+  constructor(readonly name: PersonName, readonly relationship: string) {}
+}
+
+export const EmergencyContactSchema = new EntitySchema<EmergencyContact>({
+  class: EmergencyContact,
+  embeddable: true,
+  properties: {
+    name: {
+      kind: 'embedded',
+      entity: () => PersonName,
+      prefix: false, // doesn't work
+      // prefix: 'emergency_contact_', // have to override the parent prefix
+    },
+    relationship: { type: 'string' },
+  },
+});
+
+class Patient {
+  constructor(
+    readonly id: string, 
+    readonly name: PersonName, 
+    readonly emergencyContact: EmergencyContact
+  ) {}
+}
+
+export const PatientSchema = new EntitySchema<Patient>({
+  class: Patient,
+  properties: {
+    id: {
+      type: 'text',
+      primary: true,
+    },
+    name: {
+      kind: 'embedded',
+      entity: () => PersonName,
+      prefix: false,
+    },
+    emergencyContact: {
+      kind: 'embedded',
+      entity: () => EmergencyContact,
+      prefix: 'emergency_contact_',
+      nullable: true,
+    },
+  },
+});
+
 
 let orm: MikroORM;
 
 beforeAll(async () => {
   orm = await MikroORM.init({
     dbName: ':memory:',
-    entities: [User],
+    entities: [PatientSchema, PersonNameSchema, EmergencyContactSchema],
     debug: ['query', 'query-params'],
     allowGlobalContext: true, // only for testing
   });
@@ -36,16 +78,29 @@ afterAll(async () => {
 });
 
 test('basic CRUD example', async () => {
-  orm.em.create(User, { name: 'Foo', email: 'foo' });
+  orm.em.create(Patient, { id: '1', name: {
+    givenName: 'John',
+    surname: 'Doe',
+  }, emergencyContact: {
+    name: {
+      givenName: 'Jane',
+      surname: 'Doe',
+    },
+    relationship: 'wife',
+  } });
   await orm.em.flush();
   orm.em.clear();
 
-  const user = await orm.em.findOneOrFail(User, { email: 'foo' });
-  expect(user.name).toBe('Foo');
-  user.name = 'Bar';
-  orm.em.remove(user);
-  await orm.em.flush();
+  const qb = orm.em.createQueryBuilder('Patient');
 
-  const count = await orm.em.count(User, { email: 'foo' });
-  expect(count).toBe(0);
+  qb.select(['*']).where({ id: '1' });
+  const patient = await qb.execute('get', false);
+  expect(patient).toStrictEqual({
+    id: '1',
+    given_name: 'John',
+    surname: 'Doe',
+    emergency_contact_given_name: 'Jane',
+    emergency_contact_surname: 'Doe',
+    emergency_contact_relationship: 'wife',
+  });
 });
